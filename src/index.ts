@@ -12,6 +12,11 @@ interface History {
     subordinates: Employee[]
 }
 
+interface EmployeeTree {
+    parent: Employee,
+    employee: Employee
+}
+
 interface IEmployeeOrgApp {
     ceo: Employee
     /**
@@ -49,27 +54,63 @@ class EmployeeOrgApp implements IEmployeeOrgApp {
      */
     move(employeeID: number, supervisorID: number): void {
 
-        // finding employee and supervisor Object
-        let { employee, parent } = this.searchEmployee(this.ceo, employeeID)
-        parent.subordinates = this.removeEmployee(parent.subordinates, employee)
+        let employeeTree = this.performEmployeeSearch(employeeID)
+        if (employeeTree) {
+            this.performSupervisorSearch(supervisorID, employeeTree.employee)
 
-        let supervisor = this.searchEmployee(this.ceo, supervisorID)
-        supervisor = supervisor.employee || supervisor.parent
+            let history = {
+                parentId: employeeTree.parent.uniqueId,
+                employeeId: employeeID,
+                supervisorId: supervisorID,
+                subordinates: employeeTree.employee.subordinates
+            } as History
 
-        // asigning employee under supervisor 
-        supervisor.subordinates.push(employee)
+            this.clearSubordinates(employeeTree.employee)
+            this.histories[++this.cursor] = history
+            this.histories.length = (this.cursor + 1)
 
-        let history = {
-            parentId: parent.uniqueId,
-            employeeId: employeeID,
-            supervisorId: supervisorID,
-            subordinates: employee.subordinates
-        } as History
 
+        }
+    }
+
+    /**
+     * 
+     * @param employee 
+     */
+    clearSubordinates(employee: Employee): void {
         employee.subordinates = []
-        this.histories.push(history)
+    }
 
-        this.cursor++
+    /**
+     * 
+     * @param employeeID 
+     * @returns 
+     */
+    performEmployeeSearch(employeeID: number): EmployeeTree | undefined {
+        let employeeTree = this.searchEmployee(this.ceo, employeeID)
+
+
+        if (employeeTree) {
+            employeeTree.parent.subordinates = this.removeEmployee(employeeTree.parent.subordinates, employeeTree.employee)
+        }
+        return employeeTree
+    }
+
+    /**
+     * 
+     * @param supervisorID 
+     * @param employee 
+     * @returns 
+     */
+    performSupervisorSearch(supervisorID: number, employee: Employee): EmployeeTree | undefined {
+        let supervisor = this.searchEmployee(this.ceo, supervisorID)
+
+        if (supervisor) {
+            // asigning employee under supervisor 
+            supervisor.employee.subordinates.push(employee)
+        }
+
+        return supervisor
     }
 
     /** removes list of subordinates from parent employee node  */
@@ -79,47 +120,49 @@ class EmployeeOrgApp implements IEmployeeOrgApp {
      * @param employees 
      */
     remove(subordinates: Employee[], employees: Employee[]): void {
+
         for (let employee of employees) {
-            subordinates.splice(subordinates.indexOf(employee), 1)
+            let index = subordinates.indexOf(employee)
+            if (index != -1)
+                subordinates.splice(index, 1)
         }
     }
 
-    /**
-     * 
-     * @param employeeID 
-     * @param supervisorID 
-     * @returns 
-     */
-    execute(employeeID: number, supervisorID: number): any {
-        /** finding employee and supervisor Object */
-        let { employee, parent } = this.searchEmployee(this.ceo, employeeID)
-        parent.subordinates = this.removeEmployee(parent.subordinates, employee)
-
-        let supervisor = this.searchEmployee(this.ceo, supervisorID)
-        /**  asigning employee under supervisor */
-        supervisor = supervisor.employee || supervisor.parent
-        supervisor.subordinates.push(employee)
-        return { employee, supervisor }
-    }
 
     /** Undo last move action */
     undo(): void {
-        if (this.cursor > -1) {
-            let history = this.histories[this.cursor--]
-            let { employee, supervisor } = this.execute(history.employeeId, history.parentId)
-            employee.subordinates = employee.subordinates.concat(history.subordinates)
 
-            this.remove(supervisor.subordinates, history.subordinates)
+        if (this.cursor > -1) {
+
+            let history = this.histories[this.cursor--]
+
+            let employeeTree = this.performEmployeeSearch(history.employeeId)
+            if (employeeTree) {
+                let supervisorTree = this.performSupervisorSearch(history.parentId, employeeTree.employee)
+
+                employeeTree.employee.subordinates = employeeTree.employee.subordinates.concat(history.subordinates)
+
+                if (supervisorTree) {
+                    this.remove(supervisorTree.employee.subordinates, history.subordinates)
+                }
+            }
         }
     }
+
     /** Redo last undone action */
     redo(): void {
-        if (this.cursor < this.histories.length) {
+        if (this.cursor + 1 < this.histories.length) {
             let history = this.histories[++this.cursor]
-            let { employee, supervisor } = this.execute(history.employeeId, history.supervisorId)
-            employee.subordinates = []
+            let employeeTree = this.performEmployeeSearch(history.employeeId)
+            if (employeeTree) {
+                this.performSupervisorSearch(history.supervisorId, employeeTree.employee)
+
+                this.clearSubordinates(employeeTree.employee)
+
+            }
         }
     }
+
     /** remove subordinates from employe and added to parent employee  */
     /**
      * 
@@ -128,37 +171,29 @@ class EmployeeOrgApp implements IEmployeeOrgApp {
      * @returns 
      */
     removeEmployee(subordinates: Employee[], employee: Employee): Employee[] {
-        subordinates.splice(subordinates.indexOf(employee), 1)
+        this.remove(subordinates, [employee])
         return subordinates.concat(employee.subordinates)
     }
 
 
-    /** search for employee object  */
     /**
      * 
      * @param parent 
      * @param employeeID 
      * @returns 
      */
-    searchEmployee(parent: Employee, employeeID: number): any {
-        if (parent.uniqueId == employeeID) {
-            return { employee: null, parent }
-        }
+    searchEmployee(parent: Employee, employeeID: number): EmployeeTree | undefined {
+
         for (var employee of parent.subordinates) {
             if (employee.uniqueId === employeeID) {
-
                 return { employee, parent }
             } else {
-                employee = this.searchEmployee(employee, employeeID)
-                if (employee)
-                    return employee
+                let employeeTree = this.searchEmployee(employee, employeeID)
+                if (employeeTree)
+                    return employeeTree
             }
         }
 
-        return false
     }
-
-
 }
-
 
